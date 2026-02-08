@@ -1,7 +1,7 @@
 services:
   - type: web
     name: collabdoc-web
-    env: docker
+    runtime: docker
     plan: starter
     dockerfilePath: ./Dockerfile
     autoDeploy: true
@@ -42,7 +42,7 @@ services:
 
   - type: worker
     name: collabdoc-worker
-    env: docker
+    runtime: docker
     plan: starter
     dockerfilePath: ./Dockerfile
     autoDeploy: true
@@ -64,7 +64,7 @@ services:
 
   - type: worker
     name: collabdoc-beat
-    env: docker
+    runtime: docker
     plan: starter
     dockerfilePath: ./Dockerfile
     autoDeploy: true
