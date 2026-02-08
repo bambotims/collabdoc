@@ -2,11 +2,13 @@ Django==5.2.11
 djangorestframework==3.16.1
 channels==4.2.2
 channels_redis==4.2.1
+dj-database-url==2.2.0
 pycrdt-websocket==0.16.0
 psycopg[binary]==3.2.12
 celery==5.5.3
 redis==5.2.1
 PyJWT==2.10.1
+whitenoise==6.8.2
 python-dotenv==1.0.1
 pytest==8.3.5
 pytest-django==4.11.1

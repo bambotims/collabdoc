@@ -1,8 +1,8 @@
 import os
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qsl, urlparse
 
+import dj_database_url
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -16,21 +16,33 @@ def env_bool(key: str, default: bool = False) -> bool:
     return value.lower() in {"1", "true", "yes", "on"}
 
 
+def env_list(key: str, default: list[str] | None = None) -> list[str]:
+    value = os.getenv(key)
+    if value is None:
+        return default or []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "change-me-in-production")
 DEBUG = env_bool("DJANGO_DEBUG", True)
 
-ALLOWED_HOSTS = [
-    host.strip()
-    for host in os.getenv("DJANGO_ALLOWED_HOSTS", "*").split(",")
-    if host.strip()
-]
-CSRF_TRUSTED_ORIGINS = [
-    origin.strip()
-    for origin in os.getenv("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",")
-    if origin.strip()
-]
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", ["127.0.0.1", "localhost"])
+CSRF_TRUSTED_ORIGINS = env_list(
+    "DJANGO_CSRF_TRUSTED_ORIGINS",
+    ["http://127.0.0.1:5173", "http://localhost:5173"],
+)
+
+render_hostname = os.getenv("RENDER_EXTERNAL_HOSTNAME")
+if render_hostname:
+    if render_hostname not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(render_hostname)
+    render_origin = f"https://{render_hostname}"
+    if render_origin not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(render_origin)
 
 INSTALLED_APPS = [
+    # Enables ASGI runserver so `python manage.py runserver` can handle WebSockets.
+    "daphne",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -49,6 +61,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -62,7 +75,7 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [BASE_DIR / "templates"],
+        "DIRS": [BASE_DIR / "templates", BASE_DIR / "frontend" / "dist"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -77,19 +90,14 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-tmpPostgres = urlparse(os.getenv("DATABASE_URL"))
-
-if tmpPostgres:
+database_url = os.getenv("DATABASE_URL")
+if database_url:
     DATABASES: dict[str, dict[str, Any]] = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": tmpPostgres.path.replace("/", ""),
-            "USER": tmpPostgres.username,
-            "PASSWORD": tmpPostgres.password,
-            "HOST": tmpPostgres.hostname,
-            "PORT": 5432,
-            "OPTIONS": dict(parse_qsl(tmpPostgres.query)),
-        }
+        "default": dj_database_url.parse(
+            database_url,
+            conn_max_age=600,
+            ssl_require=not DEBUG,
+        )
     }
 else:
     DATABASES = {
@@ -121,11 +129,13 @@ USE_TZ = True
 
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+_frontend_assets_dir = BASE_DIR / "frontend" / "dist" / "assets"
+STATICFILES_DIRS = [_frontend_assets_dir] if _frontend_assets_dir.exists() else []
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REDIS_URL = os.getenv("REDIS_URL")
-
 if REDIS_URL:
     CHANNEL_LAYERS = {
         "default": {
@@ -158,7 +168,8 @@ else:
 
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 300
-CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+CELERY_BEAT_SCHEDULER = os.getenv("CELERY_BEAT_SCHEDULER", "celery.beat:PersistentScheduler")
+CELERY_BEAT_SCHEDULE_FILENAME = str(BASE_DIR / "celerybeat-schedule")
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
@@ -182,6 +193,11 @@ REST_FRAMEWORK = {
 
 SESSION_COOKIE_SECURE = env_bool("SESSION_COOKIE_SECURE", not DEBUG)
 CSRF_COOKIE_SECURE = env_bool("CSRF_COOKIE_SECURE", not DEBUG)
+SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "Lax")
+CSRF_COOKIE_SAMESITE = os.getenv("CSRF_COOKIE_SAMESITE", "Lax")
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True
+SECURE_SSL_REDIRECT = env_bool("SECURE_SSL_REDIRECT", not DEBUG)
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = "same-origin"

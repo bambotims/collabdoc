@@ -2,6 +2,8 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 
 import { api } from "../api/client";
+import { getApiErrorMessage } from "../api/errors";
+import { useToast } from "../components/Toast";
 import type { AuthUser, DocumentRecord } from "../types";
 
 type DocumentsListPageProps = {
@@ -9,44 +11,63 @@ type DocumentsListPageProps = {
 };
 
 export function DocumentsListPage({ user }: DocumentsListPageProps) {
+  const { pushToast } = useToast();
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [title, setTitle] = useState("Untitled document");
-  const [error, setError] = useState<string | null>(null);
 
   async function loadDocuments() {
     try {
       const response = await api.get<DocumentRecord[]>("/docs/");
       setDocuments(response.data);
-      setError(null);
-    } catch {
-      setError("Failed to load documents");
+    } catch (error) {
+      pushToast(getApiErrorMessage(error, "Failed to load documents."), { variant: "error" });
     }
   }
 
   useEffect(() => {
     void loadDocuments();
-  }, []);
+  }, [pushToast]);
 
   async function createDocument(event: FormEvent) {
     event.preventDefault();
-    await api.post<DocumentRecord>("/docs/", { title });
-    setTitle("Untitled document");
-    await loadDocuments();
+    try {
+      await api.post<DocumentRecord>("/docs/", { title });
+      setTitle("Untitled document");
+      pushToast("Document created.", { variant: "success" });
+      await loadDocuments();
+    } catch (error) {
+      pushToast(getApiErrorMessage(error, "Failed to create document."), { variant: "error" });
+    }
   }
 
   async function renameDocument(documentId: string, nextTitle: string) {
-    await api.patch<DocumentRecord>(`/docs/${documentId}/`, { title: nextTitle });
-    await loadDocuments();
+    try {
+      await api.patch<DocumentRecord>(`/docs/${documentId}/`, { title: nextTitle });
+      pushToast("Document renamed.", { variant: "success" });
+      await loadDocuments();
+    } catch (error) {
+      pushToast(getApiErrorMessage(error, "Failed to rename document."), { variant: "error" });
+    }
   }
 
   async function archiveDocument(documentId: string) {
-    await api.post(`/docs/${documentId}/archive/`);
-    await loadDocuments();
+    try {
+      await api.post(`/docs/${documentId}/archive/`);
+      pushToast("Document archived.", { variant: "success" });
+      await loadDocuments();
+    } catch (error) {
+      pushToast(getApiErrorMessage(error, "Failed to archive document."), { variant: "error" });
+    }
   }
 
   async function restoreDocument(documentId: string) {
-    await api.post(`/docs/${documentId}/restore/`);
-    await loadDocuments();
+    try {
+      await api.post(`/docs/${documentId}/restore/`);
+      pushToast("Document restored.", { variant: "success" });
+      await loadDocuments();
+    } catch (error) {
+      pushToast(getApiErrorMessage(error, "Failed to restore document."), { variant: "error" });
+    }
   }
 
   return (
@@ -59,7 +80,6 @@ export function DocumentsListPage({ user }: DocumentsListPageProps) {
         <input value={title} onChange={(event) => setTitle(event.target.value)} />
         <button type="submit">Create</button>
       </form>
-      {error ? <p className="error">{error}</p> : null}
       <div className="panel">
         <table>
           <thead>

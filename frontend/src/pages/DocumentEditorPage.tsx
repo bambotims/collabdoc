@@ -8,9 +8,11 @@ import { WebsocketProvider } from "y-websocket";
 import * as Y from "yjs";
 
 import { api } from "../api/client";
+import { getApiErrorMessage } from "../api/errors";
 import { CommentsPanel } from "../components/CommentsPanel";
 import { PresencePanel, type PresenceUser } from "../components/PresencePanel";
 import { SnapshotPanel } from "../components/SnapshotPanel";
+import { useToast } from "../components/Toast";
 import type { AuthUser, CommentThread, SnapshotRecord } from "../types";
 
 type CollabTokenResponse = {
@@ -24,6 +26,7 @@ type DocumentEditorPageProps = {
 };
 
 export function DocumentEditorPage({ user }: DocumentEditorPageProps) {
+  const { pushToast } = useToast();
   const { docId } = useParams();
   const navigate = useNavigate();
   const [provider, setProvider] = useState<WebsocketProvider | null>(null);
@@ -49,45 +52,50 @@ export function DocumentEditorPage({ user }: DocumentEditorPageProps) {
     ydocRef.current = ydoc;
 
     async function bootstrap() {
-      const tokenResponse = await api.post<CollabTokenResponse>(`/docs/${currentDocId}/collab-token`);
-      if (unmounted) {
-        return;
-      }
-      setRole(tokenResponse.data.role);
-      const wsUrl = buildWsUrl();
-      const wsProvider = new WebsocketProvider(`${wsUrl}/ws/docs`, currentDocId, ydoc, {
-        params: { token: tokenResponse.data.token },
-      });
-      wsProvider.awareness.setLocalStateField("user", {
-        name: user.username,
-        color: colorFromUsername(user.username),
-      });
-      wsProvider.on("status", (event: { status: string }) => {
-        if (!unmounted) {
-          setConnectionStatus(event.status);
+      try {
+        const tokenResponse = await api.post<CollabTokenResponse>(`/docs/${currentDocId}/collab-token`);
+        if (unmounted) {
+          return;
         }
-      });
-      wsProvider.on("sync", (isSynced: boolean) => {
-        if (!unmounted) {
-          setSaveStatus(isSynced ? "saved" : "syncing");
-        }
-      });
-      const handlePresence = () => {
-        const users = Array.from(wsProvider.awareness.getStates().entries()).map(([clientId, state]) => {
-          const userState = (state as { user?: { name?: string; color?: string } }).user;
-          return {
-            clientId: String(clientId),
-            name: userState?.name ?? `user-${clientId}`,
-            color: userState?.color ?? "#4b8ff7",
-          };
+        setRole(tokenResponse.data.role);
+        const wsUrl = buildWsUrl();
+        const wsProvider = new WebsocketProvider(`${wsUrl}/ws/docs`, currentDocId, ydoc, {
+          params: { token: tokenResponse.data.token },
         });
-        if (!unmounted) {
-          setPresenceUsers(users);
-        }
-      };
-      wsProvider.awareness.on("change", handlePresence);
-      handlePresence();
-      setProvider(wsProvider);
+        wsProvider.awareness.setLocalStateField("user", {
+          name: user.username,
+          color: colorFromUsername(user.username),
+        });
+        wsProvider.on("status", (event: { status: string }) => {
+          if (!unmounted) {
+            setConnectionStatus(event.status);
+          }
+        });
+        wsProvider.on("sync", (isSynced: boolean) => {
+          if (!unmounted) {
+            setSaveStatus(isSynced ? "saved" : "syncing");
+          }
+        });
+        const handlePresence = () => {
+          const users = Array.from(wsProvider.awareness.getStates().entries()).map(([clientId, state]) => {
+            const userState = (state as { user?: { name?: string; color?: string } }).user;
+            return {
+              clientId: String(clientId),
+              name: userState?.name ?? `user-${clientId}`,
+              color: userState?.color ?? "#4b8ff7",
+            };
+          });
+          if (!unmounted) {
+            setPresenceUsers(users);
+          }
+        };
+        wsProvider.awareness.on("change", handlePresence);
+        handlePresence();
+        setProvider(wsProvider);
+      } catch (error) {
+        pushToast(getApiErrorMessage(error, "Failed to connect to collaborative session."), { variant: "error" });
+        navigate("/docs");
+      }
     }
 
     void bootstrap();
@@ -98,15 +106,19 @@ export function DocumentEditorPage({ user }: DocumentEditorPageProps) {
       editorRef.current = null;
       ydocRef.current?.destroy();
     };
-  }, [docId, user.username]);
+  }, [docId, navigate, pushToast, user.username]);
 
   useEffect(() => {
     if (!docId) {
       return;
     }
-    void loadComments(docId, setComments);
-    void loadSnapshots(docId, setSnapshots);
-  }, [docId]);
+    void loadComments(docId, setComments).catch((error) => {
+      pushToast(getApiErrorMessage(error, "Failed to load comments."), { variant: "error" });
+    });
+    void loadSnapshots(docId, setSnapshots).catch((error) => {
+      pushToast(getApiErrorMessage(error, "Failed to load snapshots."), { variant: "error" });
+    });
+  }, [docId, pushToast]);
 
   async function createComment(body: string) {
     if (!docId || !ydocRef.current || !editorRef.current) {
@@ -120,44 +132,69 @@ export function DocumentEditorPage({ user }: DocumentEditorPageProps) {
     const startRelB64 = toBase64(Y.encodeRelativePosition(startRel));
     const endRelB64 = toBase64(Y.encodeRelativePosition(endRel));
 
-    await api.post(`/docs/${docId}/comments`, {
-      body,
-      start_rel_b64: startRelB64,
-      end_rel_b64: endRelB64,
-    });
-    await loadComments(docId, setComments);
+    try {
+      await api.post(`/docs/${docId}/comments`, {
+        body,
+        start_rel_b64: startRelB64,
+        end_rel_b64: endRelB64,
+      });
+      pushToast("Comment added.", { variant: "success" });
+      await loadComments(docId, setComments);
+    } catch (error) {
+      pushToast(getApiErrorMessage(error, "Failed to add comment."), { variant: "error" });
+    }
   }
 
   async function resolveComment(threadId: number) {
     if (!docId) {
       return;
     }
-    await api.post(`/docs/${docId}/comments/${threadId}/resolve`);
-    await loadComments(docId, setComments);
+    try {
+      await api.post(`/docs/${docId}/comments/${threadId}/resolve`);
+      pushToast("Comment resolved.", { variant: "success" });
+      await loadComments(docId, setComments);
+    } catch (error) {
+      pushToast(getApiErrorMessage(error, "Failed to resolve comment."), { variant: "error" });
+    }
   }
 
   async function reopenComment(threadId: number) {
     if (!docId) {
       return;
     }
-    await api.post(`/docs/${docId}/comments/${threadId}/reopen`);
-    await loadComments(docId, setComments);
+    try {
+      await api.post(`/docs/${docId}/comments/${threadId}/reopen`);
+      pushToast("Comment reopened.", { variant: "success" });
+      await loadComments(docId, setComments);
+    } catch (error) {
+      pushToast(getApiErrorMessage(error, "Failed to reopen comment."), { variant: "error" });
+    }
   }
 
   async function createSnapshot() {
     if (!docId) {
       return;
     }
-    await api.post(`/docs/${docId}/snapshots`);
-    await loadSnapshots(docId, setSnapshots);
+    try {
+      await api.post(`/docs/${docId}/snapshots`);
+      pushToast("Snapshot created.", { variant: "success" });
+      await loadSnapshots(docId, setSnapshots);
+    } catch (error) {
+      pushToast(getApiErrorMessage(error, "Failed to create snapshot."), { variant: "error" });
+    }
   }
 
   async function restoreSnapshot(snapshotId: number) {
     if (!docId) {
       return;
     }
-    await api.post(`/docs/${docId}/snapshots/${snapshotId}/restore`);
-    await loadSnapshots(docId, setSnapshots);
+    try {
+      await api.post(`/docs/${docId}/snapshots/${snapshotId}/restore`);
+      pushToast("Snapshot restored.", { variant: "success" });
+      await loadSnapshots(docId, setSnapshots);
+    } catch (error) {
+      pushToast(getApiErrorMessage(error, "Failed to restore snapshot."), { variant: "error" });
+    }
   }
 
   if (!docId) {
