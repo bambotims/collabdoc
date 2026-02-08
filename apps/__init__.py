@@ -1,0 +1,1 @@
+"""CollabDoc Django apps namespace."""
