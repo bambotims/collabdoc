@@ -2,7 +2,7 @@ services:
   - type: web
     name: collabdoc-web
     runtime: docker
-    plan: starter
+    plan: free
     dockerfilePath: ./Dockerfile
     autoDeploy: true
     healthCheckPath: /api/health
@@ -43,7 +43,7 @@ services:
   - type: worker
     name: collabdoc-worker
     runtime: docker
-    plan: starter
+    plan: free
     dockerfilePath: ./Dockerfile
     autoDeploy: true
     dockerCommand: celery -A config worker -l info
@@ -65,7 +65,7 @@ services:
   - type: worker
     name: collabdoc-beat
     runtime: docker
-    plan: starter
+    plan: free
     dockerfilePath: ./Dockerfile
     autoDeploy: true
     dockerCommand: celery -A config beat -l info
@@ -83,15 +83,3 @@ services:
           type: redis
           name: collabdoc-redis
           property: connectionString
-
-  - type: redis
-    name: collabdoc-redis
-    plan: starter
-    ipAllowList: []
-    maxmemoryPolicy: noeviction
-
-databases:
-  - name: collabdoc-db
-    plan: starter
-    databaseName: collabdoc
-    user: collabdoc
