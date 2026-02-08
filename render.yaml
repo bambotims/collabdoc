@@ -83,3 +83,15 @@ services:
           type: redis
           name: collabdoc-redis
           property: connectionString
+
+  - type: redis
+    name: collabdoc-redis
+    plan: free
+    ipAllowList: []
+    maxmemoryPolicy: noeviction
+
+databases:
+  - name: collabdoc-db
+    plan: free
+    databaseName: collabdoc
+    user: collabdoc
