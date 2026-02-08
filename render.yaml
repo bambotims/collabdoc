@@ -87,6 +87,7 @@ services:
   - type: redis
     name: collabdoc-redis
     plan: starter
+    ipAllowList: []
     maxmemoryPolicy: noeviction
 
 databases:
